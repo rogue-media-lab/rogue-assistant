@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 
 from rich.console import Console
+from rich.markup import escape
 from rich.theme import Theme
 
 THEME = Theme({
@@ -21,7 +22,7 @@ console = Console(theme=THEME)
 
 
 def print_error(msg: str) -> None:
-    console.print(f"[err]error:[/err] {msg}")
+    console.print(f"[err]error:[/err] {escape(msg)}")
 
 
 def print_info(msg: str) -> None:
@@ -33,7 +34,7 @@ def print_ok(msg: str) -> None:
 
 
 def print_warn(msg: str) -> None:
-    console.print(f"[warn]![/warn] {msg}")
+    console.print(f"[warn]![/warn] {escape(msg)}")
 
 
 @contextmanager

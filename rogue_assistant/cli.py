@@ -237,7 +237,7 @@ def _review_plan(history: list[dict], conf: dict) -> None:
     console.print("\n[bold cyan]── Review ──────────────────────────────────────[/bold cyan]")
     try:
         from .agents.base import BaseAgent
-        reviewer = BaseAgent(model=conf.get("default_model", "claude-sonnet-4-6"))
+        reviewer = BaseAgent(model="claude-sonnet-4-6")
         reviewer.system_prompt = REVIEW_SYSTEM
         reviewer.ask(review_prompt, stream=True)
     except Exception as e:
@@ -344,6 +344,16 @@ def _run_setup_wizard() -> None:
         "\nDefault model",
         default=current.get("default_model", "claude-sonnet-4-6"),
     )
+    if default_model.startswith("gemini"):
+        try:
+            import google.genai  # noqa: F401
+        except ImportError:
+            console.print(
+                f"\n[bold yellow]Note:[/bold yellow] You chose a Gemini model but "
+                f"[cyan]google-genai[/cyan] is not installed.\n"
+                f"Run this after setup:  [bold]pip install google-genai[/bold]\n"
+                f"Or switch models with: [bold]{name} config[/bold]\n"
+            )
 
     # Paper
     paper_enabled = False
@@ -400,8 +410,11 @@ def _check_stale_invocation() -> bool:
     if configured_name == "assistant":
         return False  # not yet set up, or default
 
+    # Only warn if the config actually exists — pointer without config means incomplete cleanup
+    if not cfg.exists():
+        return False
+
     invoked_as = Path(sys.argv[0]).stem if sys.argv else "rogue-assistant"
-    # Normalize: rogue-assistant or rogue_assistant both count as the base command
     base_names = {"rogue-assistant", "rogue_assistant"}
     if invoked_as in base_names and configured_name not in base_names:
         return True
