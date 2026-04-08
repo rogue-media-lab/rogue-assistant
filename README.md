@@ -146,22 +146,10 @@ rogue-assistant config
 
 ## Optional dependencies
 
-Install Gemini support:
-
-```bash
-pip install 'rogue-assistant[gemini]'
-```
-
-Install Imagen support:
+Gemini support is included by default. Imagen image generation requires an additional package:
 
 ```bash
 pip install 'rogue-assistant[imagen]'
-```
-
-Install everything:
-
-```bash
-pip install 'rogue-assistant[all]'
 ```
 
 ---

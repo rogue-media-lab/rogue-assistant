@@ -44,5 +44,10 @@ def spinner(msg: str = "thinking…"):
 
 
 def print_banner(name: str) -> None:
-    """Print a clean, name-aware banner."""
-    console.print(f"\n[bold cyan]{name.upper()}[/bold cyan]  [dim]your AI assistant — type /help for commands[/dim]\n")
+    """Print an ASCII art banner using the assistant's chosen name."""
+    try:
+        import pyfiglet
+        art = pyfiglet.figlet_format(name, font="modular")
+        console.print(f"[bold cyan]{art}[/bold cyan][dim]  your AI assistant — type /help for commands[/dim]\n")
+    except Exception:
+        console.print(f"\n[bold cyan]{name.upper()}[/bold cyan]  [dim]your AI assistant — type /help for commands[/dim]\n")

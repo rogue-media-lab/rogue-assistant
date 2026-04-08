@@ -9,21 +9,15 @@ description = "A personalizable multi-LLM AI assistant CLI"
 requires-python = ">=3.10"
 dependencies = [
     "anthropic>=0.40.0",
+    "google-genai>=0.7.0",
     "typer>=0.12.0",
     "rich>=13.7.0",
     "prompt_toolkit>=3.0.0",
+    "pyfiglet>=1.0.2",
 ]
 
 [project.optional-dependencies]
-gemini = [
-    "google-genai>=0.7.0",
-]
 imagen = [
-    "google-genai>=0.7.0",
-    "google-cloud-aiplatform>=1.60.0",
-]
-all = [
-    "google-genai>=0.7.0",
     "google-cloud-aiplatform>=1.60.0",
 ]
 

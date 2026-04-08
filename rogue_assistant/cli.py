@@ -344,16 +344,6 @@ def _run_setup_wizard() -> None:
         "\nDefault model",
         default=current.get("default_model", "claude-sonnet-4-6"),
     )
-    if default_model.startswith("gemini"):
-        try:
-            import google.genai  # noqa: F401
-        except ImportError:
-            console.print(
-                f"\n[bold yellow]Note:[/bold yellow] You chose a Gemini model but "
-                f"[cyan]google-genai[/cyan] is not installed.\n"
-                f"Run this after setup:  [bold]pip install google-genai[/bold]\n"
-                f"Or switch models with: [bold]{name} config[/bold]\n"
-            )
 
     # Paper
     paper_enabled = False
