@@ -18,6 +18,10 @@ from . import config as cfg, cost as cost_tracker
 from .ui import console, print_banner, print_info, print_error, print_ok, print_warn
 
 SLASH_COMMANDS = [
+    ("/plan",    "Load or create project docs (e.g. /plan myproject)"),
+    ("/build",   "Enter build mode for a project (e.g. /build myproject)"),
+    ("/sync",    "Check docs vs code for gaps (e.g. /sync myproject)"),
+    ("/remember","Save something to your personal memory"),
     ("/image",   "Generate an image with Imagen 4"),
     ("/design",  "Design a UI component (uses Paper if available)"),
     ("/review",  "Have Claude review the current plan for edge cases and gaps"),
@@ -96,6 +100,12 @@ def _help_text(name: str) -> str:
     return f"""\
 [bold cyan]{name} — available commands[/bold cyan]
 
+  [cyan]Memory[/cyan]
+  /plan [project]   Load or create project docs (/plan lists all projects)
+  /build <project>  Enter build mode — loads docs + code context
+  /sync <project>   Check docs vs code for gaps before building
+  /remember <text>  Save something to your personal memory
+
   [cyan]Tools[/cyan]
   /image <prompt>   Generate an image with Imagen 4
   /design           Design a UI component
@@ -113,15 +123,40 @@ Just type normally to chat.
 """
 
 
+def _build_agent(
+    model: str | None,
+    current_project: str | None,
+    current_mode: str | None,
+) -> "ChatAgent":
+    from .agents.chat import ChatAgent
+    from . import memory as mem
+
+    user_memory = mem.load_user_memory()
+    project_docs = ""
+    if current_project:
+        project_docs = mem.load_project_docs(current_project)
+
+    return ChatAgent(
+        model=model,
+        user_memory=user_memory,
+        project_docs=project_docs,
+        project_name=current_project or "",
+        mode=current_mode or "",
+    )
+
+
 def _repl(model: str | None = None) -> None:
     cfg.ensure_dirs()
 
     conf = cfg.load()
     name = conf.get("name", "assistant")
 
+    current_model: str | None = model
+    current_project: str | None = None
+    current_mode: str | None = None
+
     try:
-        from .agents.chat import ChatAgent
-        agent = ChatAgent(model=model)
+        agent = _build_agent(current_model, current_project, current_mode)
     except RuntimeError as e:
         print_error(str(e))
         raise typer.Exit(1)
@@ -136,11 +171,14 @@ def _repl(model: str | None = None) -> None:
         style=PT_STYLE,
     )
 
-    current_model: str | None = model
+    def _prompt() -> str:
+        if current_project:
+            return f"{name} [{current_project}:{current_mode}] > "
+        return f"{name} > "
 
     while True:
         try:
-            user_input = session.prompt(f"{name} > ")
+            user_input = session.prompt(_prompt)
         except (KeyboardInterrupt, EOFError):
             console.print("\n[dim]bye.[/dim]")
             break
@@ -152,7 +190,7 @@ def _repl(model: str | None = None) -> None:
         if user_input.startswith("/"):
             parts = user_input[1:].split(maxsplit=1)
             cmd = parts[0].lower() if parts else ""
-            arg = parts[1] if len(parts) > 1 else ""
+            arg = parts[1].strip() if len(parts) > 1 else ""
 
             if cmd == "":
                 console.print(_help_text(name))
@@ -188,12 +226,76 @@ def _repl(model: str | None = None) -> None:
                     console.print("\n[dim]Use /model <name> to switch. Any valid API model name works.[/dim]")
                 else:
                     try:
-                        from .agents.chat import ChatAgent
-                        agent = ChatAgent(model=arg)
                         current_model = arg
+                        agent = _build_agent(current_model, current_project, current_mode)
                         print_ok(f"Switched to [bold]{agent.model}[/bold]  ({_provider_label(agent.model)})")
                     except (ValueError, RuntimeError) as e:
                         print_error(str(e))
+
+            elif cmd == "remember":
+                if not arg:
+                    arg = console.input("[dim]What should I remember?[/dim] ").strip()
+                if arg:
+                    from . import memory as mem
+                    mem.append_user_memory(arg)
+                    # Rebuild agent so new memory is in context
+                    agent = _build_agent(current_model, current_project, current_mode)
+
+            elif cmd == "plan":
+                from . import memory as mem
+                if not arg:
+                    # List existing projects
+                    projects = mem.list_projects()
+                    if projects:
+                        console.print("\n[bold cyan]Your projects:[/bold cyan]")
+                        for p in projects:
+                            console.print(f"  [cyan]{p}[/cyan]")
+                        console.print(f"\n[dim]Use /plan <project> to load one.[/dim]\n")
+                    else:
+                        console.print("[dim]No projects yet. Use /plan <project> to create one.[/dim]")
+                else:
+                    project = arg.lower().replace(" ", "-")
+                    if not mem.project_exists(project):
+                        ok = mem.run_interview(project)
+                        if not ok:
+                            continue
+                    else:
+                        print_ok(f"Loaded docs for [bold]{project}[/bold].")
+
+                    current_project = project
+                    current_mode = "plan"
+                    agent = _build_agent(current_model, current_project, current_mode)
+                    print_info(f"Now in [bold]plan[/bold] mode for [bold]{project}[/bold]. Conversation history reset.\n")
+
+            elif cmd == "build":
+                from . import memory as mem
+                if not arg:
+                    print_warn("Specify a project: /build <project>")
+                else:
+                    project = arg.lower().replace(" ", "-")
+                    if not mem.project_exists(project):
+                        print_warn(f"No docs found for '{project}'. Run /plan {project} first.")
+                    else:
+                        project_path = mem.get_project_path(project)
+                        if project_path and Path(project_path).exists():
+                            print_ok(f"Loaded docs + code structure for [bold]{project}[/bold].")
+                        else:
+                            print_ok(f"Loaded docs for [bold]{project}[/bold].")
+                            if project_path:
+                                print_warn(f"Project path not found on disk: {project_path}")
+
+                        current_project = project
+                        current_mode = "build"
+                        agent = _build_agent(current_model, current_project, current_mode)
+                        print_info(f"Now in [bold]build[/bold] mode for [bold]{project}[/bold]. Conversation history reset.\n")
+
+            elif cmd == "sync":
+                from . import memory as mem
+                project = arg.lower().replace(" ", "-") if arg else current_project
+                if not project:
+                    print_warn("Specify a project: /sync <project>")
+                else:
+                    mem.run_sync(project)
 
             elif cmd == "review":
                 _review_plan(agent.history, conf)
