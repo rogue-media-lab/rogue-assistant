@@ -22,6 +22,7 @@ SLASH_COMMANDS = [
     ("/design",  "Design a UI component (uses Paper if available)"),
     ("/speak",   "Speak text aloud via MiniMax TTS"),
     ("/voice",   "Toggle auto-speak mode (reads every response aloud)"),
+    ("/tones",   "Toggle Eridian tone generation for *🎵 ...🎵* markers"),
     ("/video",   "Generate a video from an image or prompt (MiniMax)"),
     ("/music",   "Generate a music track from a style/mood description (MiniMax)"),
     ("/review",  "Have Claude review the current plan for edge cases and gaps"),
@@ -145,12 +146,14 @@ def _repl(model: str | None = None) -> None:
     print_info("Type /help to see commands.\n")
 
     voice_mode: bool = False
+    tones_mode: bool = False
 
     def _toolbar():
         cost = cost_tracker.session.total_cost()
         cost_str = f"${cost:.4f}" if cost_tracker.session.calls > 0 else "$0.0000"
         voice_str = " | voice:on" if voice_mode else ""
-        return f" {name} | {agent.model} | {cost_str}{voice_str} "
+        tones_str = " | tones:on" if tones_mode else ""
+        return f" {name} | {agent.model} | {cost_str}{voice_str}{tones_str} "
 
     session = PromptSession(
         completer=SlashCompleter(),
@@ -235,6 +238,11 @@ def _repl(model: str | None = None) -> None:
                     state = "[green]on[/green]" if voice_mode else "[dim]off[/dim]"
                     print_ok(f"Voice mode {state}.")
 
+            elif cmd == "tones":
+                tones_mode = not tones_mode
+                state = "[green]on[/green]" if tones_mode else "[dim]off[/dim]"
+                print_ok(f"Tone mode {state}. Eridian sounds will {'generate and cache on first use' if tones_mode else 'not play'}.")
+
             elif cmd == "video":
                 from .agents.video import generate as gen_video
                 image_path = None
@@ -280,9 +288,15 @@ def _repl(model: str | None = None) -> None:
         console.print("[dim cyan]─[/dim cyan]")
         try:
             response = agent.ask(user_input, stream=True)
-            if voice_mode and response:
-                from .agents.tts import speak
-                speak(response)
+            if response:
+                if tones_mode:
+                    from .agents.tones import extract, play_all
+                    descs = extract(response)
+                    if descs:
+                        play_all(descs)
+                if voice_mode:
+                    from .agents.tts import speak
+                    speak(response)
         except Exception as e:
             print_error(str(e))
         console.print("[dim cyan]─[/dim cyan]\n")
