@@ -24,11 +24,18 @@ def _active_voice() -> str:
 
 
 def _clean_for_tts(text: str) -> str:
-    """Strip stage directions and embellishments that TTS should not read."""
-    # Strip *🎵 musical stage directions 🎵* entirely
-    text = re.sub(r'\*[^*]*🎵[^*]*\*', '', text)
-    # For other *emphasized* words, keep the text but remove the asterisks
-    text = re.sub(r'\*([^*]+)\*', r'\1', text)
+    """Strip stage directions and embellishments that TTS should not read.
+
+    Stage directions: *Loud, ecstatic chords!* (has comma or 3+ words) → strip entirely
+    Inline emphasis:  *exactly* or *Hail Mary* (1-2 words, no comma) → keep the word
+    """
+    def _handle_asterisk(m: re.Match) -> str:
+        content = m.group(1)
+        if ',' in content or len(content.split()) >= 3:
+            return ''   # stage direction — drop it
+        return content  # inline emphasis — keep the word(s)
+
+    text = re.sub(r'\*([^*\n]+)\*', _handle_asterisk, text)
     # Remove any stray 🎵 emoji
     text = text.replace('🎵', '')
     # Collapse excess blank lines left behind
