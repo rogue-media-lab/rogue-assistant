@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -22,6 +23,17 @@ def _active_voice() -> str:
     return cfg.load().get("tts_voice", DEFAULT_VOICE)
 
 
+def _clean_for_tts(text: str) -> str:
+    """Strip stage directions and embellishments that TTS should not read."""
+    # Remove *stage directions* and *🎵 musical descriptions 🎵*
+    text = re.sub(r'\*[^*]+\*', '', text)
+    # Remove any stray 🎵 emoji
+    text = text.replace('🎵', '')
+    # Collapse excess blank lines left behind
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
 def speak(text: str, voice_id: str | None = None) -> None:
     """Convert text to speech and play it via the Minimax TTS API."""
     api_key = cfg.get_minimax_key()
@@ -30,6 +42,10 @@ def speak(text: str, voice_id: str | None = None) -> None:
         return
 
     voice_id = voice_id or _active_voice()
+    text = _clean_for_tts(text)
+
+    if not text:
+        return  # nothing left to speak after cleaning
 
     payload = {
         "model": DEFAULT_MODEL,
