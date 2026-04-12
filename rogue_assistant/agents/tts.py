@@ -25,8 +25,10 @@ def _active_voice() -> str:
 
 def _clean_for_tts(text: str) -> str:
     """Strip stage directions and embellishments that TTS should not read."""
-    # Remove *stage directions* and *🎵 musical descriptions 🎵*
-    text = re.sub(r'\*[^*]+\*', '', text)
+    # Strip *🎵 musical stage directions 🎵* entirely
+    text = re.sub(r'\*[^*]*🎵[^*]*\*', '', text)
+    # For other *emphasized* words, keep the text but remove the asterisks
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)
     # Remove any stray 🎵 emoji
     text = text.replace('🎵', '')
     # Collapse excess blank lines left behind
