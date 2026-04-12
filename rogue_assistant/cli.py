@@ -20,8 +20,12 @@ from .ui import console, print_banner, print_info, print_error, print_ok, print_
 SLASH_COMMANDS = [
     ("/image",   "Generate an image with Imagen 4"),
     ("/design",  "Design a UI component (uses Paper if available)"),
+    ("/speak",   "Speak text aloud via MiniMax TTS"),
+    ("/voice",   "Toggle auto-speak mode (reads every response aloud)"),
+    ("/video",   "Generate a video from an image or prompt (MiniMax)"),
+    ("/music",   "Generate a music track from a style/mood description (MiniMax)"),
     ("/review",  "Have Claude review the current plan for edge cases and gaps"),
-    ("/model",   "Show or switch LLM (e.g. /model gemini-2.5-flash)"),
+    ("/model",   "Show or switch LLM (e.g. /model MiniMax-M2.7)"),
     ("/cost",    "Show session token usage and estimated cost"),
     ("/clear",   "Clear terminal screen and conversation history"),
     ("/reset",   "Clear conversation history (keep terminal)"),
@@ -48,6 +52,12 @@ KNOWN_MODELS = {
         "gemini-2.5-flash",
         "gemini-2.5-pro",
         "gemini-3-flash-preview",
+    ],
+    "MiniMax": [
+        "MiniMax-M2.7",
+        "MiniMax-M2.7-highspeed",
+        "MiniMax-M2.5",
+        "MiniMax-M2.5-highspeed",
     ],
 }
 
@@ -89,7 +99,11 @@ app = typer.Typer(
 
 
 def _provider_label(model: str) -> str:
-    return "Gemini" if model.startswith("gemini") else "Claude"
+    if model.startswith("gemini"):
+        return "Gemini"
+    if model.lower().startswith("minimax"):
+        return "MiniMax"
+    return "Claude"
 
 
 def _help_text(name: str) -> str:
@@ -130,10 +144,19 @@ def _repl(model: str | None = None) -> None:
     print_info(f"Model: {agent.model}  ({_provider_label(agent.model)})")
     print_info("Type /help to see commands.\n")
 
+    voice_mode: bool = False
+
+    def _toolbar():
+        cost = cost_tracker.session.total_cost()
+        cost_str = f"${cost:.4f}" if cost_tracker.session.calls > 0 else "$0.0000"
+        voice_str = " | voice:on" if voice_mode else ""
+        return f" {name} | {agent.model} | {cost_str}{voice_str} "
+
     session = PromptSession(
         completer=SlashCompleter(),
         complete_while_typing=True,
         style=PT_STYLE,
+        bottom_toolbar=_toolbar,
     )
 
     current_model: str | None = model
@@ -195,6 +218,45 @@ def _repl(model: str | None = None) -> None:
                     except (ValueError, RuntimeError) as e:
                         print_error(str(e))
 
+            elif cmd == "speak":
+                if not arg:
+                    arg = console.input("[dim]Text to speak:[/dim] ").strip()
+                if arg:
+                    from .agents.tts import speak
+                    speak(arg)
+
+            elif cmd == "voice":
+                if arg:
+                    from .agents.tts import set_voice
+                    set_voice(arg)
+                    print_ok(f"Voice set to [bold]{arg}[/bold].")
+                else:
+                    voice_mode = not voice_mode
+                    state = "[green]on[/green]" if voice_mode else "[dim]off[/dim]"
+                    print_ok(f"Voice mode {state}.")
+
+            elif cmd == "video":
+                from .agents.video import generate as gen_video
+                image_path = None
+                prompt = ""
+                if arg:
+                    p = Path(arg.split()[0]).expanduser()
+                    if p.exists() and p.is_file():
+                        image_path = str(p)
+                        prompt = " ".join(arg.split()[1:])
+                    else:
+                        prompt = arg
+                if not image_path and not prompt:
+                    prompt = console.input("[dim]Prompt or image path:[/dim] ").strip()
+                gen_video(image_path=image_path, prompt=prompt)
+
+            elif cmd == "music":
+                if not arg:
+                    arg = console.input("[dim]Style/mood prompt:[/dim] ").strip()
+                if arg:
+                    from .agents.music import generate as gen_music
+                    gen_music(prompt=arg)
+
             elif cmd == "review":
                 _review_plan(agent.history, conf)
 
@@ -217,7 +279,10 @@ def _repl(model: str | None = None) -> None:
 
         console.print("[dim cyan]─[/dim cyan]")
         try:
-            agent.ask(user_input, stream=True)
+            response = agent.ask(user_input, stream=True)
+            if voice_mode and response:
+                from .agents.tts import speak
+                speak(response)
         except Exception as e:
             print_error(str(e))
         console.print("[dim cyan]─[/dim cyan]\n")
@@ -332,6 +397,11 @@ def _run_setup_wizard() -> None:
         default=current.get("google_api_key", ""),
         password=True,
     )
+    minimax_key = Prompt.ask(
+        "MiniMax API key (optional — powers MiniMax models, TTS, video, and music)",
+        default=current.get("minimax_api_key", ""),
+        password=True,
+    )
     google_project = ""
     if google_key:
         google_project = Prompt.ask(
@@ -373,6 +443,7 @@ def _run_setup_wizard() -> None:
         "personality": personality,
         "anthropic_api_key": anthropic_key,
         "google_api_key": google_key,
+        "minimax_api_key": minimax_key,
         "google_project_id": google_project,
         "default_model": default_model,
         "design_model": default_model,
@@ -451,6 +522,52 @@ def image(
         _run_setup_wizard()
     from .agents.image_gen import ImageAgent
     ImageAgent().generate(prompt)
+
+
+@app.command()
+def voices(
+    all: bool = typer.Option(False, "--all", help="Show all languages, not just English"),
+    set_id: str = typer.Option(None, "--set", help="Set the active TTS voice by ID"),
+) -> None:
+    """List available MiniMax TTS voices."""
+    from .agents.tts import list_voices, set_voice
+    if set_id:
+        set_voice(set_id)
+        print_ok(f"Voice set to [bold]{set_id}[/bold].")
+    else:
+        list_voices(language_filter=None if all else "English")
+
+
+@app.command()
+def video(
+    image: Optional[str] = typer.Argument(None, help="Path to image file (image-to-video). Omit for text-to-video."),
+    prompt: Optional[str] = typer.Option(None, "--prompt", "-p", help="Description / camera direction"),
+    duration: int = typer.Option(6, "--duration", "-d", help="Duration in seconds (6 or 10)"),
+    resolution: str = typer.Option("1080P", "--resolution", "-r", help="Resolution: 768P or 1080P"),
+    model: str = typer.Option("MiniMax-Hailuo-2.3", "--model", "-m", help="MiniMax video model"),
+) -> None:
+    """Generate a video from an image (image-to-video) or a prompt (text-to-video)."""
+    if not cfg.exists():
+        console.print("[warn]No config found.[/warn] Running setup wizard…\n")
+        _run_setup_wizard()
+    from .agents.video import generate
+    generate(image_path=image, prompt=prompt or "", duration=duration, resolution=resolution, model=model)
+
+
+@app.command()
+def music(
+    prompt: str = typer.Argument(..., help="Style/mood for generation, or target style for a cover"),
+    lyrics: Optional[str] = typer.Option(None, "--lyrics", "-l", help="Custom lyrics (supports [Verse]/[Chorus]/[Bridge] tags)"),
+    instrumental: bool = typer.Option(False, "--instrumental", "-i", help="Generate without vocals"),
+    cover: Optional[str] = typer.Option(None, "--cover", "-c", help="URL or local file path to restyle as a cover"),
+    model: str = typer.Option("music-2.6", "--model", "-m", help="music-2.6 or music-cover"),
+) -> None:
+    """Generate a music track, or restyle an existing track as a cover."""
+    if not cfg.exists():
+        console.print("[warn]No config found.[/warn] Running setup wizard…\n")
+        _run_setup_wizard()
+    from .agents.music import generate as gen_music
+    gen_music(prompt=prompt, lyrics=lyrics or "", instrumental=instrumental, cover=cover or "", model=model)
 
 
 @app.command()

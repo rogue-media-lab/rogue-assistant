@@ -22,6 +22,9 @@ DEFAULTS = {
     "google_api_key": "",
     "google_project_id": "",
     "google_location": "us-central1",
+    "minimax_api_key": "",
+    "minimax_model": "MiniMax-M2.7",
+    "tts_voice": "English_radiant_girl",
     "default_model": "claude-sonnet-4-6",
     "design_model": "claude-sonnet-4-6",
     "paper_enabled": False,
@@ -108,4 +111,11 @@ def get_google_key() -> str:
     key = os.environ.get("GOOGLE_API_KEY", "")
     if not key:
         key = load().get("google_api_key", "")
+    return key
+
+
+def get_minimax_key() -> str:
+    key = os.environ.get("MINIMAX_API_KEY", "")
+    if not key:
+        key = load().get("minimax_api_key", "")
     return key

@@ -26,7 +26,12 @@ class BaseAgent:
             self.model = conf.get("default_model", "claude-sonnet-4-6")
 
         self.history: list[dict] = []
-        self._provider = "gemini" if self.model.startswith("gemini") else "claude"
+        if self.model.startswith("gemini"):
+            self._provider = "gemini"
+        elif self.model.lower().startswith("minimax"):
+            self._provider = "minimax"
+        else:
+            self._provider = "claude"
 
         if self._provider == "claude":
             api_key = cfg.get_anthropic_key()
@@ -36,8 +41,22 @@ class BaseAgent:
                     f"No Anthropic API key found. Run `{name} config` or set ANTHROPIC_API_KEY."
                 )
             self.client = anthropic.Anthropic(api_key=api_key)
+        elif self._provider == "minimax":
+            self._init_minimax(conf)
         else:
             self._init_gemini()
+
+    def _init_minimax(self, conf: dict) -> None:
+        api_key = cfg.get_minimax_key()
+        if not api_key:
+            name = conf.get("name", "assistant")
+            raise RuntimeError(
+                f"No MiniMax API key found. Run `{name} config` or set MINIMAX_API_KEY."
+            )
+        self.client = anthropic.Anthropic(
+            api_key=api_key,
+            base_url="https://api.minimax.io/anthropic",
+        )
 
     def _init_gemini(self) -> None:
         api_key = cfg.get_google_key()
