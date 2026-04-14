@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
+import atexit
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
+
+
+def _restore_terminal() -> None:
+    """Ensure the terminal is left in a sane state after exit."""
+    try:
+        subprocess.run(["stty", "sane"], check=False, capture_output=True)
+    except Exception:
+        pass
+
+
+atexit.register(_restore_terminal)
 
 import typer
 from rich.prompt import Prompt
@@ -146,13 +159,13 @@ def _repl(model: str | None = None) -> None:
     print_info("Type /help to see commands.\n")
 
     voice_mode: bool = False
-    tones_mode: bool = False
+    tones_mode: str = "off"  # off | library | generate
 
     def _toolbar():
         cost = cost_tracker.session.total_cost()
         cost_str = f"${cost:.4f}" if cost_tracker.session.calls > 0 else "$0.0000"
         voice_str = " | voice:on" if voice_mode else ""
-        tones_str = " | tones:on" if tones_mode else ""
+        tones_str = f" | tones:{tones_mode}" if tones_mode != "off" else ""
         return f" {name} | {agent.model} | {cost_str}{voice_str}{tones_str} "
 
     session = PromptSession(
@@ -239,9 +252,15 @@ def _repl(model: str | None = None) -> None:
                     print_ok(f"Voice mode {state}.")
 
             elif cmd == "tones":
-                tones_mode = not tones_mode
-                state = "[green]on[/green]" if tones_mode else "[dim]off[/dim]"
-                print_ok(f"Tone mode {state}. Eridian sounds will {'generate and cache on first use' if tones_mode else 'not play'}.")
+                from .agents.tones import MODE_OFF, MODE_LIBRARY, MODE_GENERATE
+                cycle = {MODE_OFF: MODE_LIBRARY, MODE_LIBRARY: MODE_GENERATE, MODE_GENERATE: MODE_OFF}
+                tones_mode = cycle[tones_mode]
+                labels = {
+                    MODE_OFF:      "[dim]off[/dim]",
+                    MODE_LIBRARY:  "[green]library[/green]  (uses existing tones, no generation)",
+                    MODE_GENERATE: "[green]generate[/green] (uses library, generates new tones on miss)",
+                }
+                print_ok(f"Tone mode: {labels[tones_mode]}")
 
             elif cmd == "video":
                 from .agents.video import generate as gen_video
@@ -289,11 +308,11 @@ def _repl(model: str | None = None) -> None:
         try:
             response = agent.ask(user_input, stream=True)
             if response:
-                if tones_mode:
+                if tones_mode != "off":
                     from .agents.tones import extract, play_all
                     descs = extract(response)
                     if descs:
-                        play_all(descs)
+                        play_all(descs, mode=tones_mode)
                 if voice_mode:
                     from .agents.tts import speak
                     speak(response)
@@ -416,6 +435,11 @@ def _run_setup_wizard() -> None:
         default=current.get("minimax_api_key", ""),
         password=True,
     )
+    elevenlabs_key = Prompt.ask(
+        "ElevenLabs API key (optional — powers Eridian tones and sound effects)",
+        default=current.get("elevenlabs_api_key", ""),
+        password=True,
+    )
     google_project = ""
     if google_key:
         google_project = Prompt.ask(
@@ -444,6 +468,12 @@ def _run_setup_wizard() -> None:
             default=current.get("paper_mcp_url", "http://127.0.0.1:29979/mcp"),
         )
 
+    # Weather location
+    weather_location = Prompt.ask(
+        "\nYour location for weather context (e.g. Rock Hill, SC) — leave blank to disable",
+        default=current.get("weather_location", ""),
+    ).strip()
+
     # Images directory
     default_images = str(Path.home() / "Pictures" / name)
     images_dir = Prompt.ask(
@@ -458,11 +488,13 @@ def _run_setup_wizard() -> None:
         "anthropic_api_key": anthropic_key,
         "google_api_key": google_key,
         "minimax_api_key": minimax_key,
+        "elevenlabs_api_key": elevenlabs_key,
         "google_project_id": google_project,
         "default_model": default_model,
         "design_model": default_model,
         "paper_enabled": paper_enabled,
         "paper_mcp_url": paper_url,
+        "weather_location": weather_location,
         "images_dir": images_dir,
         "design_output_dir": str(Path.home() / "designs" / name),
     }
@@ -543,11 +575,10 @@ def voices(
     all: bool = typer.Option(False, "--all", help="Show all languages, not just English"),
     set_id: str = typer.Option(None, "--set", help="Set the active TTS voice by ID"),
 ) -> None:
-    """List available MiniMax TTS voices."""
+    """List available TTS voices (MiniMax or ElevenLabs based on active voice)."""
     from .agents.tts import list_voices, set_voice
     if set_id:
         set_voice(set_id)
-        print_ok(f"Voice set to [bold]{set_id}[/bold].")
     else:
         list_voices(language_filter=None if all else "English")
 

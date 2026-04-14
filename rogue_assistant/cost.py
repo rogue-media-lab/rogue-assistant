@@ -22,14 +22,18 @@ def _image_price(model: str) -> float:
 
 
 # TTS pricing (USD per million characters)
-# sourced from https://platform.minimax.io/docs/guides/pricing-paygo
+# MiniMax: sourced from https://platform.minimax.io/docs/guides/pricing-paygo
+# ElevenLabs: eleven_multilingual_v2 ~$300/million chars (Creator plan)
 TTS_PRICING: dict[str, float] = {
-    "speech-2.8-hd":    100.0,
-    "speech-2.8-turbo":  60.0,
-    "speech-2.6-hd":    100.0,
-    "speech-2.6-turbo":  60.0,
-    "speech-02-hd":     100.0,
-    "speech-02-turbo":   60.0,
+    "speech-2.8-hd":           100.0,
+    "speech-2.8-turbo":         60.0,
+    "speech-2.6-hd":           100.0,
+    "speech-2.6-turbo":         60.0,
+    "speech-02-hd":            100.0,
+    "speech-02-turbo":          60.0,
+    "eleven_multilingual_v2":  300.0,
+    "eleven_turbo_v2_5":       150.0,
+    "eleven_flash_v2_5":        50.0,
 }
 _FALLBACK_TTS_PRICE = 100.0
 
@@ -72,6 +76,9 @@ MUSIC_PRICING: dict[str, float] = {
     "music-2.0":   0.03,
 }
 _FALLBACK_MUSIC_PRICE = 0.15
+
+# ElevenLabs sound effects — $0.008 per generation (8 credits at starter rate)
+SOUND_EFFECT_PRICE = 0.008
 
 
 def _music_price(model: str) -> float:
@@ -131,6 +138,7 @@ class SessionCost:
     _tts_chars: dict[str, int] = field(default_factory=dict)
     _video_jobs: list[tuple] = field(default_factory=list)
     _music_tracks: dict[str, int] = field(default_factory=dict)
+    _sound_effects: int = 0
 
     def record(self, model: str, usage) -> None:
         """Record usage from an Anthropic API response.usage object."""
@@ -166,6 +174,10 @@ class SessionCost:
         """Record a music generation track."""
         self._music_tracks[model] = self._music_tracks.get(model, 0) + 1
 
+    def record_sound_effect(self) -> None:
+        """Record an ElevenLabs sound effect generation."""
+        self._sound_effects += 1
+
     def total_cost(self) -> float:
         total = 0.0
         for model, m in self._by_model.items():
@@ -182,6 +194,7 @@ class SessionCost:
             total += _video_price(model, resolution, duration)
         for model, count in self._music_tracks.items():
             total += count * _music_price(model)
+        total += self._sound_effects * SOUND_EFFECT_PRICE
         return total
 
     def record_image(self, model: str, count: int = 1) -> None:
@@ -217,6 +230,7 @@ class SessionCost:
         self._tts_chars.clear()
         self._video_jobs.clear()
         self._music_tracks.clear()
+        self._sound_effects = 0
 
 
 # Module-level singleton shared across all agents in a session

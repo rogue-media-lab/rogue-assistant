@@ -23,8 +23,11 @@ DEFAULTS = {
     "google_project_id": "",
     "google_location": "us-central1",
     "minimax_api_key": "",
+    "elevenlabs_api_key": "",
     "minimax_model": "MiniMax-M2.7",
     "tts_voice": "English_radiant_girl",
+    "tts_provider": "minimax",
+    "weather_location": "",
     "default_model": "claude-sonnet-4-6",
     "design_model": "claude-sonnet-4-6",
     "paper_enabled": False,
@@ -118,4 +121,11 @@ def get_minimax_key() -> str:
     key = os.environ.get("MINIMAX_API_KEY", "")
     if not key:
         key = load().get("minimax_api_key", "")
+    return key
+
+
+def get_elevenlabs_key() -> str:
+    key = os.environ.get("ELEVENLABS_API_KEY", "")
+    if not key:
+        key = load().get("elevenlabs_api_key", "")
     return key
